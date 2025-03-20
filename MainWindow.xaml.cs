@@ -15,12 +15,39 @@ namespace MindtheMusic
         private MMDevice? playbackDevice = null;
         private AudioSessionControl? spotifySession;
         private float previousSpotifyVolume = 1.0f;
-
+        private bool isSpotifyActive = false; // Track if Spotify is active 
+        private readonly object playbackDeviceLock = new object(); // Lock for playback device access
+        private Task currentMonitorTask = Task.CompletedTask; // Track the current monitor task
         private CancellationTokenSource monitorTokenSource = null;
 
         public MainWindow()
         {
             InitializeComponent();
+
+            // Initialize devices immediately to check at start up
+            enumerator = new MMDeviceEnumerator();
+            playbackDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+
+            // Check Spotify running status right when app loads
+            CheckSpotifyRunning();
+        }
+
+        private void CheckSpotifyRunning()
+        {
+            FindSpotifySession();
+
+            if (spotifySession == null)
+            {
+                StatusTextBlock.Text = "Spotify not running! Please start Spotify.";
+                Debug.WriteLine("Spotify not running! Please start Spotify.");
+            }
+            else
+            {
+                StatusTextBlock.Text = "Spotify detected! Ready to monitor.";
+                Debug.WriteLine("Spotify detected! Ready to monitor.");
+
+                StartMonitoring(); // Automatically start monitoring if Spotify is found
+            }
         }
 
         private void StartButton_Click(object sender, RoutedEventArgs e)
@@ -28,41 +55,79 @@ namespace MindtheMusic
             StartMonitoring();
         }
 
-        private void StartMonitoring()
+        private async void StartMonitoring()
         {
-            StatusTextBlock.Text = "Status: Monitoring...";
+            // Cancel previous token source and wait for task completion
+            if (monitorTokenSource != null)
+            {
+                monitorTokenSource.Cancel();
 
-            enumerator = new MMDeviceEnumerator();
-            playbackDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                try
+                {
+                    await currentMonitorTask;  // Wait for the previous task to finish cleanly
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Previous monitor task ended with error: {ex.Message}");
+                }
+
+                monitorTokenSource.Dispose();
+            }
+
+            monitorTokenSource = new CancellationTokenSource();
+
+            lock (playbackDeviceLock)
+            {
+                playbackDevice?.Dispose(); // Dispose old device
+                enumerator?.Dispose();     // Dispose old enumerator
+
+                enumerator = new MMDeviceEnumerator();
+                playbackDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            }
 
             FindSpotifySession();
 
-            // Re-scan Spotify session every 15 mins
-            _ = Task.Run(async () =>
+            if (spotifySession == null)
             {
-                while (true)
-                {
-                    await Task.Delay(TimeSpan.FromMinutes(15));
-                    FindSpotifySession();
-                }
-            });
+                StatusTextBlock.Text = "Spotify not found! Please start Spotify before monitoring!";
+                Debug.WriteLine("Spotify not found! Please start Spotify before monitoring!");
+                return;
+            }
 
-            // Start the audio monitoring loop
-            monitorTokenSource = new CancellationTokenSource();
-            MonitorAudioLevels(monitorTokenSource.Token);
+            StatusTextBlock.Text = "Status: Monitoring...";
+            Debug.WriteLine("Monitoring Started");
+
+            currentMonitorTask = MonitorAudioLevels(monitorTokenSource.Token);
         }
+
 
         private void FindSpotifySession()
         {
             try
             {
-                var sessions = playbackDevice.AudioSessionManager.Sessions;
+                AudioSessionControl? foundSpotifySession = null;
 
-                for (int i = 0; i < sessions.Count; i++)
+                List<AudioSessionControl> sessionsCopy = null;
+                lock (playbackDeviceLock)
                 {
-                    var session = sessions[i];
-                    Process proc;
+                    if (playbackDevice == null || playbackDevice.State != DeviceState.Active)
+                    {
+                        Debug.WriteLine("Playback device is not active, cannot find Spotify session.");
+                        return;
+                    }
 
+                    // Copy the sessions out of the lock
+                    sessionsCopy = new List<AudioSessionControl>();
+                    for (int i = 0; i < playbackDevice.AudioSessionManager.Sessions.Count; i++)
+                    {
+                        sessionsCopy.Add(playbackDevice.AudioSessionManager.Sessions[i]);
+                    }
+                }
+
+                // Work on sessionsCopy outside the lock
+                foreach (var session in sessionsCopy)
+                {
+                    Process proc;
                     try
                     {
                         proc = Process.GetProcessById((int)session.GetProcessID);
@@ -74,22 +139,27 @@ namespace MindtheMusic
 
                     if (proc.ProcessName.ToLower().Contains("spotify"))
                     {
-                        spotifySession = session;
-                        Dispatcher.Invoke(() =>
-                        {
-                            StatusTextBlock.Text = "Spotify session found!";
-                        });
-                        Debug.WriteLine("Spotify session found!");
-                        return;
+                        foundSpotifySession = session;
+                        break;
                     }
                 }
 
-                Dispatcher.Invoke(() =>
+                if (foundSpotifySession != null && !isSpotifyActive)
                 {
-                    StatusTextBlock.Text = "Spotify not running!";
-                });
-                Debug.WriteLine("Spotify not found.");
-                spotifySession = null;
+                    spotifySession = foundSpotifySession;
+                    isSpotifyActive = true;
+
+                    Dispatcher.Invoke(() => StatusTextBlock.Text = "Spotify detected! Ready to monitor.");
+                    Debug.WriteLine("Spotify session found and updated.");
+                }
+                else if (foundSpotifySession == null && isSpotifyActive)
+                {
+                    spotifySession = null;
+                    isSpotifyActive = false;
+
+                    Dispatcher.Invoke(() => StatusTextBlock.Text = "Spotify session lost! Please re-start Spotify.");
+                    Debug.WriteLine("Spotify session not found. Resetting.");
+                }
             }
             catch (Exception ex)
             {
@@ -97,136 +167,166 @@ namespace MindtheMusic
             }
         }
 
-        private void MonitorAudioLevels(CancellationToken cancellationToken)
+
+        private async Task MonitorAudioLevels(CancellationToken cancellationToken)
         {
-            _ = Task.Run(async () =>
+            Debug.WriteLine("🎧 Starting audio level monitoring loop...");
+
+            bool spotifyMuted = false;
+            float audioThreshold = 0.015f;
+            TimeSpan unmuteDelay = TimeSpan.FromSeconds(3);
+            DateTime lastVideoAudioDetected = DateTime.UtcNow;
+            DateTime lastDeviceCheck = DateTime.UtcNow;
+
+            try
             {
-                Debug.WriteLine("🎧 Starting audio level monitoring loop...");
-
-                bool spotifyMuted = false;
-                float audioThreshold = 0.015f; // Adjust threshold as needed
-                TimeSpan unmuteDelay = TimeSpan.FromSeconds(3); // Delay before unmuting Spotify
-
-                DateTime lastVideoAudioDetected = DateTime.UtcNow; // Tracks the last time we heard audio from video
-
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    try
+                    bool skipIteration = false;
+                    List<AudioSessionControl> sessionsCopy = null;
+
+                    lock (playbackDeviceLock)
                     {
-                        MMDevice localPlaybackDevice = null;
-
-                        try
+                        if (playbackDevice == null || playbackDevice.State != DeviceState.Active ||
+                            (DateTime.UtcNow - lastDeviceCheck).TotalSeconds > 10)
                         {
-                            localPlaybackDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"Failed to get playback device: {ex.Message}");
-                            await Task.Delay(1000);
-                            continue;
-                        }
-
-                        var sessions = localPlaybackDevice.AudioSessionManager.Sessions;
-
-                        bool videoAudioDetected = false;
-                        //AudioSessionControl? spotifySession = null;
-
-                        for (int i = 0; i < sessions.Count; i++)
-                        {
-                            var session = sessions[i];
-                            Process proc = null;
+                            Debug.WriteLine("Refreshing playback device...");
 
                             try
                             {
-                                proc = Process.GetProcessById((int)session.GetProcessID);
+                                playbackDevice?.Dispose();
+                                enumerator?.Dispose();
+
+                                enumerator = new MMDeviceEnumerator();
+                                playbackDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+
+                                Debug.WriteLine("Playback device refreshed.");
                             }
-                            catch
+                            catch (Exception ex)
                             {
-                                continue;
+                                Debug.WriteLine($"Error refreshing playback device: {ex.Message}");
+                                skipIteration = true;
                             }
 
-                            string name = proc.ProcessName.ToLower();
-
-                            if (name.Contains("spotify"))
-                            {
-                                spotifySession = session;
-                            }
-
-                            // Log the audio level for debugging purposes
-                            if (name.Contains("chrome") || name.Contains("edge") || name.Contains("vlc"))
-                            {
-                                // Debugging, uncomment for previous audio level check
-                                //float peak = session.AudioMeterInformation.MasterPeakValue;
-
-                                //if (peak > 0.01f)
-                                //{
-                                    //videoAudioDetected = true;
-                                    //Debug.WriteLine($"Video playing in {name}: {peak}");
-                                //}
-
-                                float videoAudioLevel = session.AudioMeterInformation.MasterPeakValue;
-
-                                if (videoAudioLevel > audioThreshold) // Adjust threshold as needed
-                                {
-                                    videoAudioDetected = true;
-                                    lastVideoAudioDetected = DateTime.UtcNow; // Update the last detected time
-                                    Debug.WriteLine($"Video playing in {name}: {videoAudioLevel}");
-                                }
-                            }
+                            spotifySession = null;
+                            isSpotifyActive = false;
+                            lastDeviceCheck = DateTime.UtcNow;
                         }
 
-                        if (spotifySession != null)
+                        if (!skipIteration)
                         {
-                            var simpleVolume = spotifySession.SimpleAudioVolume;
+                            sessionsCopy = new List<AudioSessionControl>();
 
-                            if (videoAudioDetected)
+                            for (int i = 0; i < playbackDevice.AudioSessionManager.Sessions.Count; i++)
                             {
-                                if (!spotifyMuted)
-                                {
-                                    previousSpotifyVolume = simpleVolume.Volume; // Save the current vol
-                                    previousSpotifyVolume = Math.Clamp(previousSpotifyVolume, 0.0f, 1.0f); // Ensure it's within valid range
-                                    
-                                    simpleVolume.Volume = 0.0f; // Mute Spotify
-                                    spotifyMuted = true;
-
-                                    Debug.WriteLine($"Muted Spotify (previous volume: {previousSpotifyVolume})");
-                                    Dispatcher.Invoke(() => StatusTextBlock.Text = "Spotify muted for video.");
-                                }
-                            }
-                            else
-                            {
-
-                                TimeSpan timeSinceLastVideoAudio = DateTime.UtcNow - lastVideoAudioDetected;
-
-                                if (spotifyMuted && timeSinceLastVideoAudio > unmuteDelay)
-                                {
-                                    simpleVolume.Volume = previousSpotifyVolume; // Restore volume
-                                    spotifyMuted = false;
-
-                                    Debug.WriteLine($"Restored Spotify volume to {previousSpotifyVolume}");
-                                    Dispatcher.Invoke(() => StatusTextBlock.Text = "Spotify volume restored.");
-                                }
+                                sessionsCopy.Add(playbackDevice.AudioSessionManager.Sessions[i]);
                             }
                         }
-
-                        await Task.Delay(1000);
                     }
-                    catch (Exception ex)
+
+                    if (skipIteration || sessionsCopy == null || sessionsCopy.Count == 0)
                     {
-                        Debug.WriteLine($"Error in monitor loop: {ex.Message}");
-                        await Task.Delay(1000);
+                        await Task.Delay(2000, cancellationToken);
+                        continue;
                     }
-                }
 
-                Debug.WriteLine("⏹️ Audio monitor stopped.");
-            });
+                    bool videoAudioDetected = false;
+
+                    foreach (var session in sessionsCopy)
+                    {
+                        Process proc = null;
+
+                        try
+                        {
+                            proc = Process.GetProcessById((int)session.GetProcessID);
+                        }
+                        catch
+                        {
+                            continue;
+                        }
+
+                        string name = proc.ProcessName.ToLower();
+
+                        if (name.Contains("spotify"))
+                        {
+                            spotifySession = session;
+                        }
+
+                        if (name.Contains("chrome") || name.Contains("edge") || name.Contains("vlc"))
+                        {
+                            float videoAudioLevel = session.AudioMeterInformation.MasterPeakValue;
+
+                            if (videoAudioLevel > audioThreshold)
+                            {
+                                videoAudioDetected = true;
+                                lastVideoAudioDetected = DateTime.UtcNow;
+
+                                Debug.WriteLine($"Video playing in {name}: {videoAudioLevel}");
+                            }
+                        }
+                    }
+
+                    if (spotifySession != null)
+                    {
+                        var simpleVolume = spotifySession.SimpleAudioVolume;
+
+                        if (videoAudioDetected)
+                        {
+                            if (!spotifyMuted)
+                            {
+                                previousSpotifyVolume = simpleVolume.Volume;
+                                previousSpotifyVolume = Math.Clamp(previousSpotifyVolume, 0.0f, 1.0f);
+
+                                simpleVolume.Volume = 0.0f;
+                                spotifyMuted = true;
+
+                                Debug.WriteLine($"Muted Spotify (previous volume: {previousSpotifyVolume})");
+                                Dispatcher.Invoke(() => StatusTextBlock.Text = "Spotify muted for video.");
+                            }
+                        }
+                        else
+                        {
+                            TimeSpan timeSinceLastVideoAudio = DateTime.UtcNow - lastVideoAudioDetected;
+
+                            if (spotifyMuted && timeSinceLastVideoAudio > unmuteDelay)
+                            {
+                                simpleVolume.Volume = previousSpotifyVolume;
+                                spotifyMuted = false;
+
+                                Debug.WriteLine($"Restored Spotify volume to {previousSpotifyVolume}");
+                                Dispatcher.Invoke(() => StatusTextBlock.Text = "Spotify volume restored.");
+                            }
+                        }
+                    }
+
+                    await Task.Delay(1000, cancellationToken);
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                Debug.WriteLine("Monitor task canceled.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error in monitor loop: {ex.Message}");
+            }
+
+            Debug.WriteLine("⏹️ Audio monitor stopped.");
         }
+
+
 
 
         protected override void OnClosed(EventArgs e)
         {
             monitorTokenSource?.Cancel();
-            enumerator?.Dispose();
+
+            lock (playbackDeviceLock)
+            {
+                playbackDevice?.Dispose();
+                enumerator?.Dispose();
+            }
+
             base.OnClosed(e);
         }
     }
