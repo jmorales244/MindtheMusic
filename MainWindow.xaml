@@ -3,10 +3,35 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Mind the Music" Height="300" Width="400">
     <Grid>
-        <StackPanel Margin="20">
-            <TextBlock Text="🎵 Mind the Music Controller" FontSize="20" FontWeight="Bold" Margin="0,0,0,20" />
-            <Button Content="Start Monitoring" Click="StartButton_Click" Height="40" />
-            <TextBlock x:Name="StatusTextBlock" Text="Status: Idle" Margin="0,20,0,0"/>
+        <StackPanel Margin="20,22,20,8">
+            <TextBlock x:Name="Title" Text="Mind the Music" FontSize="20" Margin="25,0,0,10" Width="136" FontFamily="Bahnschrift" FontWeight="Bold" />
+            <TextBlock x:Name="StatusTextBlock" Text="Status: Idle" Margin="0,0,0,5" Width="315" FontFamily="Bahnschrift Light" HorizontalAlignment="Center" TextAlignment="Center" Height="30"/>
+            <Button Content="Start Monitoring" Click="StartButton_Click" Margin="0,0,0,10" Height="40" FontFamily="Bahnschrift" Width="100" />
+            <Button Content="Start Pause/Play" Click="Play_Pause_Click"  Margin="0,0,0,10" Height="40" FontFamily="Bahnschrift" Width="100" />
+
+            <!--Volume Slider-->
+            <Slider
+                x:Name="VolumeSlider"
+                Width="200"
+                Minimum="0"
+                Maximum="100"
+                Value="30"
+                TickFrequency="1"
+                IsSnapToTickEnabled="True"
+                Margin="0,0,0,5"
+                FontFamily="Bahnschrift" 
+                ValueChanged="VolumeSlider_ValueChanged"
+                ToolTip="Click to change to volume mode"
+                PreviewMouseDown="VolumeSlider_PreviewMouseDown"/>
+
+            <!-- Volume Percentage Label -->
+            <TextBlock
+                Text="{Binding ElementName=VolumeSlider, Path=Value, StringFormat=Volume: {0}%}"
+                FontSize="14"
+                HorizontalAlignment="Center"
+                Margin="0,0,0,0" FontFamily="Bahnschrift" />
         </StackPanel>
+
+
     </Grid>
 </Window>
