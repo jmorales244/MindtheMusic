@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Management; // For WMI
 using NAudio.CoreAudioApi; 
 using Windows.Media.Control; // For AudioSessionControl
 using WindowsMediaController ; // For SMTCClient
@@ -11,7 +12,6 @@ using Windows.Foundation.Collections; // For IVectorView
 using Windows.ApplicationModel;
 using Windows.Foundation.Metadata;
 using System.Windows.Input; // For ApiInformation
-
 
 namespace MindtheMusic
 {
@@ -31,17 +31,52 @@ namespace MindtheMusic
         //private bool usePauseMode = false; // Flag to indicate if pause mode is used
         private enum SpotifyMuteMode { None, Volume, Pause }
         private SpotifyMuteMode currentMuteMode = SpotifyMuteMode.Volume;
+        private ManagementEventWatcher processStartWatcher; 
         public MainWindow()
         {
             Debug.WriteLine("App starting...");
             InitializeComponent();
+            
+            StartSpotifyWatcher();
 
             // Initialize devices immediately to check at start up
             enumerator = new MMDeviceEnumerator();
             playbackDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
             _ = InitializeMediaManagerAsync(); // Initialize MediaManager asynchronously
-            // Check Spotify running status right when app loads
-            CheckSpotifyRunning();
+            
+            CheckSpotifyRunning(); // Check Spotify running status right when app loads
+        }
+
+        private void StartSpotifyWatcher()
+        {
+            try
+            {
+                // WMI query to monitor process creation
+                var query = new WqlEventQuery("SSELECT * FROM Win32_ProcessStartTrace");
+                processStartWatcher = new ManagementEventWatcher(query);
+                processStartWatcher.EventArrived += (sender, e) =>
+                {
+                    string processName = e.NewEvent.Properties["ProcessName"].Value.ToString();
+                    Debug.WriteLine($"[Watcher] Process started: {processName}");
+
+                    if (processName.Contains("Spotify.exe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            StatusTextBlock.Text = "Spotify started! Ready to monitor...";
+                            Debug.WriteLine("[Watcher] Spotify started! Ready to monitor.");
+                            CheckSpotifyRunning(); // Check if Spotify is running
+                        });
+                    }
+                };
+
+                processStartWatcher.Start();
+                Debug.WriteLine("[Watcher] Process watcher started.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Watcher] Error starting process watcher: {ex.Message}");
+            }
         }
 
         private async Task InitializeMediaManagerAsync()
@@ -144,7 +179,6 @@ namespace MindtheMusic
                 try { await currentMonitorTask; } catch { }
                 monitorTokenSource.Dispose();
                 Debug.WriteLine("[Monitor] Cancelling previous monitor...");
-                monitorTokenSource.Cancel();
             }
 
             monitorTokenSource = new CancellationTokenSource();
@@ -415,6 +449,7 @@ namespace MindtheMusic
                 {
                     playbackDevice?.Dispose();
                     enumerator?.Dispose();
+                    processStartWatcher = null;
                 }
 
                 base.OnClosed(e);
