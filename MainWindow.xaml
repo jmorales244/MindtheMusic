@@ -3,9 +3,21 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Mind the Music" Height="300" Width="400">
     <Grid>
+        <!-- Background logo -->
+        <Image Source="assets/logo_bw.png"
+           HorizontalAlignment="Right"
+           VerticalAlignment="Bottom"
+           Opacity="0.1"
+           Width="68"
+           Height="64"
+           Margin="0,0,20,19"
+           IsHitTestVisible="False"  
+           Panel.ZIndex="0" />
+
+        <!-- Main UI Layer -->
         <StackPanel Margin="20,22,20,8">
             <TextBlock x:Name="Title" Text="Mind the Music" FontSize="20" Margin="25,0,0,10" Width="136" FontFamily="Bahnschrift" FontWeight="Bold" />
-            <TextBlock x:Name="Copyright" FontSize="10" Margin="25,0,0,10" Width="323" FontFamily="Bahnschrift" Height="23" TextAlignment="Center" ><Run Text="© 2025 Jheremy M. All rights reserved. "/><LineBreak/><Run Text="This is a prototype for feedback purposes only."/></TextBlock>
+            <TextBlock x:Name="Copyright" FontSize="10" Margin="25,-10,0,10" Width="323" FontFamily="Bahnschrift" Height="23" TextAlignment="Center" ><Run Text="© 2025 Jheremy M. All rights reserved. "/><LineBreak/><Run Text="This is a prototype for feedback purposes only."/></TextBlock>
             <TextBlock x:Name="StatusTextBlock" Text="Status: Idle" Margin="0,0,0,5" Width="314" FontFamily="Bahnschrift Light" HorizontalAlignment="Center" TextAlignment="Center" Height="18"/>
             <Button Content="Start Monitoring" Click="StartButton_Click" Margin="0,0,0,10" Height="40" FontFamily="Bahnschrift" Width="100" />
             <Button Content="Start Pause/Play" Click="Play_Pause_Click"  Margin="0,0,0,10" Height="40" FontFamily="Bahnschrift" Width="100" />

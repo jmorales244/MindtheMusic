@@ -18,6 +18,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="assets\logo.ico" />
+    <None Remove="assets\logo_bw.PNG" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Dubya.WindowsMediaController" Version="2.5.5" />
     <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.26100.1742" />
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
@@ -25,6 +30,11 @@
     <PackageReference Include="System.Runtime.WindowsRuntime" Version="5.0.0-preview.5.20278.1" />
     <PackageReference Include="Microsoft.Windows.Compatibility" Version="10.0.0-preview.2.25163.3" />
     <PackageReference Include="Microsoft.Windows.SDK.Contracts" Version="10.0.26100.1742" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="assets\logo.ico" />
+    <Resource Include="assets\logo_bw.PNG" />
   </ItemGroup>
 
 </Project>
