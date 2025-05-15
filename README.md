@@ -33,7 +33,7 @@ It's built in C# using .NET 8 and WPF, I focused on privacy-first control, which
 
 work in action!:
 Lowers your volume:
-<img src="/assets/IMG_5977.gif" width="400"/>
+<img src="/assets/IMG_5977.gif"/>
 
 
 Pauses your music:
