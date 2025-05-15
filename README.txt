@@ -29,3 +29,10 @@ It's built in C# using .NET 8 and WPF, I focused on privacy-first control, which
 * Auto-detect more media apps
 * Background service mode (hidden in toolbar)
 * Custom profile modes (gaming, study, etc.)
+
+
+work in action!:
+
+![](./assets/IMG_5977.gif)
+
+![](./assets/IMG_5978.gif)
