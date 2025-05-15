@@ -32,7 +32,8 @@ It's built in C# using .NET 8 and WPF, I focused on privacy-first control, which
 
 
 work in action!:
+Lowers your volume:
+![](https://github.com/jmorales244/MindtheMusic/blob/master/assets/IMG_5977.gif)
 
-![](./assets/IMG_5977.gif)
-
-![](./assets/IMG_5978.gif)
+Pauses your music:
+![](https://github.com/jmorales244/MindtheMusic/blob/master/assets/IMG_5978.gif)
