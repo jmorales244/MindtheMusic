@@ -36,4 +36,4 @@ Lowers your volume:
 ![Low Audio](https://github.com/jmorales244/MindtheMusic/blob/master/assets/IMG_5977.gif)
 
 Pauses your music:
-![Pause Music](https://github.com/jmorales244/MindtheMusic/blob/master/assets/IMG_5978.gif]
+![Pause Music](https://github.com/jmorales244/MindtheMusic/blob/master/assets/IMG_5978.gif)
